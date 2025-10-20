@@ -3,6 +3,7 @@
 class OnboardingFlow {
     constructor(app) {
         this.app = app;
+        this.tg = app.tg; // Telegram WebApp instance
         this.currentStep = 0;
         this.userData = {
             name: '',
@@ -255,39 +256,46 @@ class OnboardingFlow {
                 </div>
                 
                 <div class="onboarding-content">
-                    <h2 class="onboarding-title">Где ты находишься?</h2>
-                    <p class="onboarding-subtitle">Это поможет найти людей поблизости</p>
+                    <h2 class="onboarding-title">Определим твое местоположение 📍</h2>
+                    <p class="onboarding-subtitle">Telegram поможет найти людей рядом с тобой</p>
                     
-                    <div class="location-options">
-                        <button class="location-btn location-auto" id="autoLocationBtn">
-                            <span class="location-icon">📍</span>
-                            <span class="location-text">
-                                <strong>Определить автоматически</strong>
-                                <small>Используя GPS</small>
-                            </span>
+                    <div class="telegram-location-card">
+                        <div class="telegram-icon">📱</div>
+                        <h3>Используем Telegram для точного определения</h3>
+                        <p>Это безопасно и поможет находить людей в твоем городе</p>
+                        
+                        <button class="btn-telegram-location" id="tgLocationBtn">
+                            <span class="btn-icon">📍</span>
+                            <span class="btn-text">Определить через Telegram</span>
                         </button>
-                        
-                        <div class="location-divider">или</div>
-                        
+                    </div>
+                    
+                    <div class="location-divider">или</div>
+                    
+                    <div class="manual-fallback">
                         <input 
                             type="text" 
                             id="cityInput" 
                             class="onboarding-input"
-                            placeholder="Введи свой город"
+                            placeholder="Введи город вручную"
                             value="${this.userData.city || ''}"
                         >
+                        <button class="btn-secondary btn-small" onclick="window.onboarding.useManualLocation()">
+                            Использовать этот город
+                        </button>
                     </div>
                     
-                    <p class="location-privacy">
-                        🔒 Точное местоположение не показывается другим пользователям.<br>
-                        Показывается только расстояние и город.
-                    </p>
+                    <div class="location-privacy-note">
+                        <span class="privacy-icon">🔒</span>
+                        <span>Точные координаты не видны другим пользователям. Показывается только город и примерное расстояние.</span>
+                    </div>
                     
                     <div class="onboarding-actions">
                         <button class="btn-secondary" onclick="window.onboarding.prevStep()">
                             ← Назад
                         </button>
-                        <button class="btn-primary" onclick="window.onboarding.nextStep()">
+                        <button class="btn-primary" onclick="window.onboarding.nextStep()"
+                                ${!this.userData.city ? 'disabled' : ''}>
                             Продолжить →
                         </button>
                     </div>
@@ -295,10 +303,13 @@ class OnboardingFlow {
             </div>
         `;
         
-        // Setup auto location button
-        document.getElementById('autoLocationBtn').addEventListener('click', () => {
-            this.requestLocation();
+        // Основной обработчик для Telegram геолокации
+        document.getElementById('tgLocationBtn').addEventListener('click', () => {
+            this.requestTelegramLocation();
         });
+        
+        // Автоматически пробуем определить локацию при загрузке
+        this.autoRequestLocation();
     }
     
     async requestLocation() {
@@ -949,6 +960,252 @@ class OnboardingFlow {
     removePhoto(index) {
         this.userData.photos.splice(index, 1);
         this.showPhotosStep(); // Refresh
+    }
+
+    // Telegram-first геолокация методы
+    async autoRequestLocation() {
+        // Ждем немного и автоматически запрашиваем локацию
+        setTimeout(async () => {
+            if (!this.userData.city) {
+                console.log('Auto-requesting Telegram location...');
+                await this.requestTelegramLocation(true); // auto mode
+            }
+        }, 1500);
+    }
+
+    async requestTelegramLocation(isAuto = false) {
+        const btn = document.getElementById('tgLocationBtn');
+        
+        if (!isAuto) {
+            btn.innerHTML = `
+                <span class="btn-icon">⏳</span>
+                <span class="btn-text">Запрашиваем доступ...</span>
+            `;
+            btn.disabled = true;
+        }
+
+        try {
+            // Метод 1: Современный Telegram WebApp API
+            if (this.app.tg && this.app.tg.requestLocation) {
+                console.log('Using modern Telegram WebApp location API');
+                await this.useModernTelegramAPI();
+                return;
+            }
+            
+            // Метод 2: Legacy Telegram WebApp API
+            if (this.app.tg && this.app.tg.showPopup) {
+                console.log('Using legacy Telegram WebApp location API');
+                await this.useLegacyTelegramAPI();
+                return;
+            }
+            
+            // Метод 3: Если Telegram API недоступен
+            throw new Error('Telegram location API not available');
+            
+        } catch (error) {
+            console.error('Telegram location failed:', error);
+            this.handleLocationError(isAuto);
+        }
+    }
+
+    // Метод 1: Современный Telegram WebApp API
+    async useModernTelegramAPI() {
+        return new Promise((resolve, reject) => {
+            this.app.tg.requestLocation(
+                "Разрешить доступ к геолокации", // message
+                (location) => {
+                    if (location) {
+                        console.log('Telegram location success:', location);
+                        this.processTelegramLocation(location);
+                        resolve(location);
+                    } else {
+                        reject(new Error('User denied location access'));
+                    }
+                }
+            );
+        });
+    }
+
+    // Метод 2: Legacy Telegram WebApp API (для старых версий)
+    async useLegacyTelegramAPI() {
+        return new Promise((resolve, reject) => {
+            this.app.tg.showPopup({
+                title: 'Доступ к геолокации',
+                message: 'Разрешить Flirtly доступ к вашему местоположению для поиска людей поблизости?',
+                buttons: [
+                    { id: 'allow', type: 'default', text: '✅ Разрешить' },
+                    { id: 'manual', type: 'default', text: '🏙️ Ввести город' },
+                    { type: 'cancel', text: '❌ Отмена' }
+                ]
+            }, async (buttonId) => {
+                if (buttonId === 'allow') {
+                    // Пробуем получить локацию через другие методы
+                    try {
+                        const location = await this.fallbackGeolocation();
+                        if (location) {
+                            this.processTelegramLocation(location);
+                            resolve(location);
+                        } else {
+                            reject(new Error('Fallback geolocation failed'));
+                        }
+                    } catch (error) {
+                        reject(error);
+                    }
+                } else if (buttonId === 'manual') {
+                    this.focusManualInput();
+                    reject(new Error('User chose manual input'));
+                } else {
+                    reject(new Error('User cancelled location request'));
+                }
+            });
+        });
+    }
+
+    // Fallback геолокация если Telegram API не дал результат
+    async fallbackGeolocation() {
+        try {
+            // Пробуем HTML5 геолокацию
+            if ('geolocation' in navigator) {
+                return new Promise((resolve) => {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => resolve({
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude
+                        }),
+                        () => resolve(null),
+                        { timeout: 10000 }
+                    );
+                });
+            }
+        } catch (error) {
+            console.warn('Fallback geolocation failed:', error);
+        }
+        return null;
+    }
+
+    // Обработка успешного получения локации
+    async processTelegramLocation(location) {
+        try {
+            // Получаем город по координатам
+            const cityInfo = await this.reverseGeocode(location.latitude, location.longitude);
+            
+            // Сохраняем данные
+            this.userData.latitude = location.latitude;
+            this.userData.longitude = location.longitude;
+            this.userData.city = cityInfo.city || 'Неизвестно';
+            this.userData.country = cityInfo.country || 'Неизвестно';
+            
+            // Обновляем UI
+            this.showLocationSuccess(this.userData.city, this.userData.country);
+            
+            // Показываем уведомление
+            AnimationSystem.showToast(`📍 ${this.userData.city} определен!`, 'success');
+            
+        } catch (error) {
+            console.error('Location processing failed:', error);
+            this.handleLocationError(false);
+        }
+    }
+
+    // Показываем успешное определение
+    showLocationSuccess(city, country) {
+        const btn = document.getElementById('tgLocationBtn');
+        const manualSection = document.querySelector('.manual-fallback');
+        
+        if (btn) {
+            btn.innerHTML = `
+                <span class="btn-icon">✅</span>
+                <span class="btn-text">${city}${country ? `, ${country}` : ''}</span>
+            `;
+            btn.className = 'btn-telegram-location success';
+            btn.disabled = true;
+        }
+        
+        if (manualSection) {
+            manualSection.style.opacity = '0.5';
+        }
+        
+        // Активируем кнопку продолжения
+        const continueBtn = document.querySelector('.onboarding-actions .btn-primary');
+        if (continueBtn) {
+            continueBtn.disabled = false;
+        }
+    }
+
+    // Обработка ошибок
+    handleLocationError(isAuto) {
+        const btn = document.getElementById('tgLocationBtn');
+        
+        if (!isAuto) {
+            btn.innerHTML = `
+                <span class="btn-icon">❌</span>
+                <span class="btn-text">Не удалось определить</span>
+            `;
+            btn.className = 'btn-telegram-location error';
+            
+            // Восстанавливаем кнопку через 3 секунды
+            setTimeout(() => {
+                btn.innerHTML = `
+                    <span class="btn-icon">📍</span>
+                    <span class="btn-text">Попробовать снова</span>
+                `;
+                btn.className = 'btn-telegram-location';
+                btn.disabled = false;
+            }, 3000);
+        }
+        
+        if (!isAuto) {
+            AnimationSystem.showToast(
+                'Не удалось определить местоположение. Введи город вручную.',
+                'warning'
+            );
+        }
+        
+        this.focusManualInput();
+    }
+
+    // Фокусируемся на ручном вводе
+    focusManualInput() {
+        const cityInput = document.getElementById('cityInput');
+        if (cityInput) {
+            cityInput.focus();
+        }
+    }
+
+    // Ручной ввод города
+    useManualLocation() {
+        const cityInput = document.getElementById('cityInput');
+        const city = cityInput.value.trim();
+        
+        if (city) {
+            this.userData.city = city;
+            this.userData.country = 'Россия'; // Дефолтная страна
+            
+            // Приблизительные координаты для основных городов
+            const cityCoordinates = {
+                'москва': { lat: 55.7558, lon: 37.6173 },
+                'санкт-петербург': { lat: 59.9343, lon: 30.3351 },
+                'новосибирск': { lat: 55.0084, lon: 82.9357 },
+                'екатеринбург': { lat: 56.8389, lon: 60.6057 },
+                'казань': { lat: 55.8304, lon: 49.0661 },
+                'нижний новгород': { lat: 56.2965, lon: 43.9361 },
+                'челябинск': { lat: 55.1644, lon: 61.4368 },
+                'самара': { lat: 53.2415, lon: 50.2212 },
+                'омск': { lat: 54.9885, lon: 73.3242 },
+                'ростов-на-дону': { lat: 47.2225, lon: 39.7187 }
+            };
+            
+            const cityLower = city.toLowerCase();
+            if (cityCoordinates[cityLower]) {
+                this.userData.latitude = cityCoordinates[cityLower].lat;
+                this.userData.longitude = cityCoordinates[cityLower].lon;
+            }
+            
+            this.showLocationSuccess(city, 'Россия');
+            AnimationSystem.showToast(`📍 Используем ${city}`, 'success');
+        } else {
+            AnimationSystem.showToast('Введите название города', 'error');
+        }
     }
     
     async complete() {
