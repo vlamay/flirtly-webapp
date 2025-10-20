@@ -2,6 +2,10 @@
 
 Современный сервис знакомств нового поколения в Telegram с красивым Web App интерфейсом.
 
+**🚀 Live Demo**: https://vlamay.github.io/flirtly-webapp/  
+**🤖 Telegram Bot**: [@FFlirtly_bot](https://t.me/FFlirtly_bot)  
+**📱 GitHub Pages**: https://github.com/vlamay/flirtly-webapp
+
 ## 🚀 Особенности
 
 - **Telegram Web App** - Нативный интерфейс прямо в Telegram
