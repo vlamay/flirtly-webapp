@@ -1,398 +1,583 @@
-# src/bot_full.py - Full bot with database integration
+# bot_full.py - Полноценный Telegram Bot с командами и inline кнопками
 
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
-from sqlalchemy.ext.asyncio import AsyncSession
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.constants import ParseMode
+from typing import Optional
+import os
+from datetime import datetime, timedelta
 
-from src.database import (
-    init_db, async_session_maker, 
-    User, get_or_create_user, get_user_by_telegram_id
+# Настройка логирования
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
 )
-from src.matching import MatchingEngine
-from src.features import ReferralSystem
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuration
-BOT_TOKEN = "8430527446:AAFLoCZqvreDpsgz4d5z4J5LXMLC42B9ex0"
-WEBAPP_URL = "https://vlamay.github.io/flirtly-webapp/"
-
-# Initialize
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-
-def get_main_keyboard() -> InlineKeyboardMarkup:
-    """Main keyboard"""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="⚡ Открыть Flirtly",
-                web_app=WebAppInfo(url=WEBAPP_URL)
-            )
-        ],
-        [
-            InlineKeyboardButton(text="👤 Профиль", callback_data="profile"),
-            InlineKeyboardButton(text="💕 Матчи", callback_data="matches")
-        ],
-        [
-            InlineKeyboardButton(text="🎁 Пригласить", callback_data="referral"),
-            InlineKeyboardButton(text="⭐ Premium", callback_data="premium")
-        ]
-    ])
-
-
-@dp.message(Command("start"))
-async def cmd_start(message: Message):
-    """Start command with referral handling"""
-    async with async_session_maker() as session:
-        telegram_id = message.from_user.id
-        username = message.from_user.username
-        
-        # Get or create user
-        user = await get_or_create_user(telegram_id, username, session)
-        
-        # Handle referral
-        args = message.text.split()
-        if len(args) > 1 and args[1].startswith("ref_"):
-            try:
-                referrer_telegram_id = int(args[1].replace("ref_", ""))
-                referrer = await get_user_by_telegram_id(referrer_telegram_id, session)
-                
-                if referrer and referrer.id != user.id:
-                    # Process referral
-                    result = await ReferralSystem.process_referral(
-                        referrer.id,
-                        user.id,
-                        session
-                    )
-                    
-                    if result['success']:
-                        # Notify referrer
-                        try:
-                            await bot.send_message(
-                                referrer.telegram_id,
-                                f"🎁 <b>Новый реферал!</b>\n\n"
-                                f"@{username or 'пользователь'} зарегистрировался по твоей ссылке!\n\n"
-                                f"Ты получил +{result['referrer_bonus']} лайков! ❤️",
-                                parse_mode="HTML"
-                            )
-                        except:
-                            pass
-            except:
-                pass
-        
-        # Check if profile is complete
-        if not user.name or not user.photos:
-            # New user - needs onboarding
-            await message.answer(
-                f"<b>Привет, {message.from_user.first_name}! 👋</b>\n\n"
-                f"Добро пожаловать в <b>Flirtly</b> ⚡\n\n"
-                f"Нажми кнопку ниже чтобы создать профиль и начать знакомиться!",
-                parse_mode="HTML",
-                reply_markup=get_main_keyboard()
-            )
-        else:
-            # Existing user
-            await message.answer(
-                f"<b>С возвращением, {user.name}! 👋</b>\n\n"
-                f"<b>Твоя статистика:</b>\n"
-                f"• ❤️ Лайков осталось: {user.daily_likes_remaining}\n"
-                f"• 💕 Совпадений: {user.matches_count}\n"
-                f"• 👀 Просмотров профиля: {user.views_count}\n\n"
-                f"Открой приложение и продолжай свайп!",
-                parse_mode="HTML",
-                reply_markup=get_main_keyboard()
-            )
-
-
-@dp.message(F.web_app_data)
-async def handle_webapp_data(message: Message):
-    """Handle data from Web App"""
-    import json
+class FlirtlyBot:
+    def __init__(self, token: str, webapp_url: str):
+        self.token = token
+        self.webapp_url = webapp_url
+        self.app = Application.builder().token(token).build()
+        self._register_handlers()
     
-    async with async_session_maker() as session:
-        try:
-            data = json.loads(message.web_app_data.data)
-            action = data.get('action')
-            telegram_id = message.from_user.id
-            
-            user = await get_user_by_telegram_id(telegram_id, session)
-            if not user:
-                user = await get_or_create_user(telegram_id, message.from_user.username, session)
-            
-            if action == 'register':
-                # Handle registration
-                user.name = data.get('name')
-                user.age = data.get('age')
-                user.gender = data.get('gender')
-                user.looking_for = data.get('looking_for')
-                user.bio = data.get('bio', '')
-                user.photos = ','.join(data.get('photos', []))
-                
-                # Location
-                user.city = data.get('city')
-                user.country = data.get('country')
-                user.latitude = data.get('latitude')
-                user.longitude = data.get('longitude')
-                
-                await session.commit()
-                
-                await message.answer(
-                    f"🎉 <b>Регистрация завершена!</b>\n\n"
-                    f"Добро пожаловать, {user.name}!\n\n"
-                    f"📍 Местоположение: {user.city or 'Не указано'}\n\n"
-                    f"Теперь можешь начать искать совпадения! ⚡",
-                    parse_mode="HTML"
-                )
-            
-            elif action == 'like' or action == 'superlike':
-                profile_id = data.get('profile_id')
-                is_super_like = (action == 'superlike')
-                
-                # Check limits
-                if user.daily_likes_remaining <= 0:
-                    await message.answer(
-                        "😔 <b>Лимит лайков исчерпан!</b>\n\n"
-                        "Получи Premium для безлимитных лайков!",
-                        parse_mode="HTML"
-                    )
-                    return
-                
-                # Process like
-                result = await MatchingEngine.process_like(
-                    user,
-                    profile_id,
-                    is_super_like,
-                    session
-                )
-                
-                if result['is_match']:
-                    # Match created!
-                    matched_user = result['matched_user']
-                    
-                    await message.answer(
-                        f"🎉 <b>Это Match!</b>\n\n"
-                        f"Вы понравились друг другу с {matched_user.name}!\n\n"
-                        f"Теперь можете начать общаться! 💬",
-                        parse_mode="HTML"
-                    )
-                    
-                    # Notify matched user
-                    try:
-                        await bot.send_message(
-                            matched_user.telegram_id,
-                            f"🎉 <b>Новое совпадение!</b>\n\n"
-                            f"Вы понравились друг другу с {user.name}!\n\n"
-                            f"Открой Flirtly и начни общаться! 💬",
-                            parse_mode="HTML",
-                            reply_markup=get_main_keyboard()
-                        )
-                    except:
-                        pass
-                else:
-                    emoji = "⭐" if is_super_like else "❤️"
-                    await message.answer(f"{emoji} Лайк отправлен!")
-            
-            elif action == 'skip':
-                profile_id = data.get('profile_id')
-                
-                await MatchingEngine.process_skip(user, profile_id, session)
-                await message.answer("👎 Пропущено")
-            
-        except Exception as e:
-            logger.error(f"Error handling webapp data: {e}", exc_info=True)
-            await message.answer("❌ Произошла ошибка")
-
-
-@dp.callback_query(F.data == "profile")
-async def callback_profile(callback):
-    """Show profile"""
-    async with async_session_maker() as session:
-        user = await get_user_by_telegram_id(callback.from_user.id, session)
+    def _register_handlers(self):
+        """Регистрация всех обработчиков"""
+        # Commands
+        self.app.add_handler(CommandHandler("start", self.start))
+        self.app.add_handler(CommandHandler("profile", self.profile))
+        self.app.add_handler(CommandHandler("matches", self.matches))
+        self.app.add_handler(CommandHandler("search", self.search))
+        self.app.add_handler(CommandHandler("settings", self.settings))
+        self.app.add_handler(CommandHandler("help", self.help))
+        self.app.add_handler(CommandHandler("premium", self.premium))
         
-        if not user or not user.name:
-            await callback.answer("Сначала создай профиль!", show_alert=True)
+        # Callback queries (inline buttons)
+        self.app.add_handler(CallbackQueryHandler(self.handle_callback))
+        
+        # Messages (для чата между матчами)
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+    
+    async def start(self, update: Update, context):
+        """Главная команда /start"""
+        user = update.effective_user
+        logger.info(f"User {user.id} ({user.username}) started the bot")
+        
+        # Проверяем есть ли пользователь в базе
+        user_exists = await self.check_user_exists(user.id)
+        
+        if not user_exists:
+            # Новый пользователь - показываем приветствие
+            welcome_text = f"""
+🔥 <b>Привет, {user.first_name}!</b>
+
+Добро пожаловать в <b>Flirtly</b> ⚡ - знакомства нового уровня!
+
+<b>Что тебя ждет:</b>
+• 💕 Умный подбор совпадений
+• ⚡ Swipe как в популярных приложениях  
+• 💬 Общение прямо в Telegram
+• 🎁 Бонусы за приглашения друзей
+
+<b>Нажми кнопку ниже чтобы начать!</b>
+            """
+        else:
+            # Существующий пользователь
+            user_data = await self.get_user_data(user.id)
+            welcome_text = f"""
+<b>С возвращением, {user_data.get('name', user.first_name)}! 👋</b>
+
+<b>Твоя статистика:</b>
+• ❤️ Лайков осталось: {10 - user_data.get('likes_sent', 0)}
+• 💕 Совпадений: {user_data.get('matches_count', 0)}
+• 💬 Активных чатов: {user_data.get('active_chats', 0)}
+
+<b>Готов искать новые знакомства?</b>
+            """
+        
+        keyboard = [
+            [InlineKeyboardButton(
+                "⚡ Открыть Flirtly", 
+                web_app=WebAppInfo(url=self.webapp_url)
+            )],
+            [
+                InlineKeyboardButton("👤 Мой профиль", callback_data="profile"),
+                InlineKeyboardButton("💕 Мои матчи", callback_data="matches")
+            ],
+            [
+                InlineKeyboardButton("🔍 Искать", callback_data="search"),
+                InlineKeyboardButton("💬 Чаты", callback_data="chats")
+            ],
+            [
+                InlineKeyboardButton("⭐ Premium", callback_data="premium"),
+                InlineKeyboardButton("⚙️ Настройки", callback_data="settings")
+            ],
+            [InlineKeyboardButton("🎁 Пригласить друзей", callback_data="referral")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            welcome_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
+    
+    async def profile(self, update: Update, context):
+        """Команда /profile"""
+        user_id = update.effective_user.id
+        user_data = await self.get_user_data(user_id)
+        
+        if not user_data:
+            await update.message.reply_text(
+                "❌ Профиль не найден. Сначала зарегистрируйся в Web App!",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⚡ Зарегистрироваться", 
+                                       web_app=WebAppInfo(url=self.webapp_url))
+                ]])
+            )
             return
         
-        profile_text = (
-            f"👤 <b>Твой профиль</b>\n\n"
-            f"<b>Имя:</b> {user.name}, {user.age}\n"
-            f"<b>Город:</b> {user.city or 'Не указан'}\n"
-            f"<b>О себе:</b> {user.bio or 'Не заполнено'}\n\n"
-            f"<b>Статистика:</b>\n"
-            f"• Лайков отправлено: {user.likes_sent}\n"
-            f"• Лайков получено: {user.likes_received}\n"
-            f"• Совпадений: {user.matches_count}\n"
-            f"• Просмотров: {user.views_count}\n\n"
-            f"<b>Подписка:</b> {user.subscription_type.value.upper()}"
-        )
+        profile_text = f"""
+👤 <b>Твой профиль</b>
+
+<b>Основная информация:</b>
+• Имя: {user_data.get('name', 'Не указано')}
+• Возраст: {user_data.get('age', 'Не указан')}
+• Пол: {user_data.get('gender', 'Не указан')}
+• Ищу: {user_data.get('looking_for', 'Не указано')}
+• Город: {user_data.get('city', 'Не указан')}
+
+<b>Статистика:</b>
+• ❤️ Лайков отправлено: {user_data.get('likes_sent', 0)}
+• 💕 Получено лайков: {user_data.get('likes_received', 0)}
+• 🎯 Совпадений: {user_data.get('matches_count', 0)}
+• 📸 Фото: {len(user_data.get('photos', []))}
+
+<b>Подписка:</b>
+• Статус: {'⭐ Premium' if user_data.get('is_premium') else '🆓 Бесплатная'}
+• До: {user_data.get('premium_until', 'Не указано')}
+        """
         
-        await callback.message.edit_text(
+        keyboard = [
+            [InlineKeyboardButton("✏️ Редактировать", 
+                                web_app=WebAppInfo(url=f"{self.webapp_url}/profile"))],
+            [InlineKeyboardButton("📸 Добавить фото", callback_data="add_photo")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
             profile_text,
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀ anback", callback_data="back")]
-            ])
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
         )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "matches")
-async def callback_matches(callback):
-    """Show matches"""
-    async with async_session_maker() as session:
-        from sqlalchemy import select, or_
-        from src.database import Match
-        
-        user = await get_user_by_telegram_id(callback.from_user.id, session)
-        
-        if not user:
-            await callback.answer("Ошибка", show_alert=True)
-            return
-        
-        # Get matches
-        result = await session.execute(
-            select(Match).where(
-                or_(
-                    Match.user1_id == user.id,
-                    Match.user2_id == user.id
-                ),
-                Match.is_active == True
-            ).order_by(Match.created_at.desc())
-        )
-        matches = result.scalars().all()
+    
+    async def matches(self, update: Update, context):
+        """Команда /matches"""
+        user_id = update.effective_user.id
+        matches = await self.get_user_matches(user_id)
         
         if not matches:
-            await callback.message.edit_text(
-                "💕 <b>Твои совпадения</b>\n\n"
-                "У тебя пока нет совпадений.\n\n"
-                "Открой приложение и начни свайпать!",
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="◀ anback", callback_data="back")]
-                ])
-            )
+            matches_text = """
+💕 <b>Мои совпадения</b>
+
+У тебя пока нет совпадений 😔
+
+<b>Как получить матчи:</b>
+• 📸 Добавь качественные фото
+• ✍️ Напиши интересную биографию
+• 🔍 Активно свайпай анкеты
+• ⭐ Купи Premium для больше возможностей
+
+<b>Начни искать прямо сейчас!</b>
+            """
+            keyboard = [
+                [InlineKeyboardButton("⚡ Начать поиск", 
+                                    web_app=WebAppInfo(url=self.webapp_url))],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+            ]
         else:
-            text = f"💕 <b>Твои совпадения ({len(matches)})</b>\n\n"
+            matches_text = "💕 <b>Мои совпадения</b>\n\n"
+            keyboard = []
             
-            for match in matches[:10]:
-                matched_user_id = match.user2_id if match.user1_id == user.id else match.user1_id
-                matched_user = await session.get(User, matched_user_id)
-                
-                if matched_user:
-                    text += f"• {matched_user.name}, {matched_user.age}\n"
+            for i, match in enumerate(matches[:5]):  # Показываем первые 5
+                matches_text += f"{i+1}. <b>{match['name']}</b>, {match['age']}\n"
+                keyboard.append([InlineKeyboardButton(
+                    f"💬 Чат с {match['name']}", 
+                    callback_data=f"chat_{match['id']}"
+                )])
             
-            await callback.message.edit_text(
-                text,
-                parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="◀ anback", callback_data="back")]
-                ])
-            )
-    
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "referral")
-async def callback_referral(callback):
-    """Show referral program"""
-    async with async_session_maker() as session:
-        user = await get_user_by_telegram_id(callback.from_user.id, session)
+            if len(matches) > 5:
+                matches_text += f"\n... и еще {len(matches) - 5} совпадений"
+            
+            keyboard.extend([
+                [InlineKeyboardButton("👀 Все совпадения", 
+                                    web_app=WebAppInfo(url=f"{self.webapp_url}/matches"))],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+            ])
         
-        if not user:
-            await callback.answer("Ошибка", show_alert=True)
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            matches_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
+    
+    async def search(self, update: Update, context):
+        """Команда /search"""
+        user_id = update.effective_user.id
+        user_data = await self.get_user_data(user_id)
+        
+        if not user_data:
+            await update.message.reply_text(
+                "❌ Сначала зарегистрируйся в Web App!",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⚡ Зарегистрироваться", 
+                                       web_app=WebAppInfo(url=self.webapp_url))
+                ]])
+            )
             return
         
-        ref_link = ReferralSystem.generate_referral_link(user.telegram_id)
+        # Проверяем лимиты
+        likes_left = 10 - user_data.get('likes_sent', 0)
         
-        # Get referral stats
-        stats = await ReferralSystem.get_referral_stats(user.id, session)
+        if likes_left <= 0:
+            search_text = """
+🔍 <b>Поиск анкет</b>
+
+❌ У тебя закончились лайки!
+
+<b>Как получить больше лайков:</b>
+• ⭐ Купи Premium - безлимитные лайки
+• 🎁 Пригласи друзей - получи бонусы
+• ⏰ Подожди до завтра - лайки обновятся
+
+<b>Premium подписка:</b>
+• Безлимитные лайки ❤️
+• 5 суперлайков в день ⚡
+• Расширенные фильтры 🔍
+• Видеть кто лайкнул 👀
+            """
+            keyboard = [
+                [InlineKeyboardButton("⭐ Купить Premium", callback_data="premium")],
+                [InlineKeyboardButton("🎁 Пригласить друзей", callback_data="referral")],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+            ]
+        else:
+            search_text = f"""
+🔍 <b>Поиск анкет</b>
+
+<b>Готов искать новые знакомства!</b>
+
+<b>Твои настройки:</b>
+• Возраст: {user_data.get('age_min', 18)}-{user_data.get('age_max', 99)}
+• Пол: {user_data.get('looking_for', 'Все')}
+• Расстояние: {user_data.get('max_distance', 50)} км
+
+<b>Лайков осталось: {likes_left}</b>
+
+<b>Начни свайпать прямо сейчас!</b>
+            """
+            keyboard = [
+                [InlineKeyboardButton("⚡ Начать свайпать", 
+                                    web_app=WebAppInfo(url=self.webapp_url))],
+                [InlineKeyboardButton("⚙️ Настроить фильтры", callback_data="filters")],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+            ]
         
-        await callback.message.edit_text(
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            search_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
+    
+    async def premium(self, update: Update, context):
+        """Команда /premium"""
+        premium_text = """
+⭐ <b>Premium подписка</b>
+
+<b>🌟 PREMIUM (250 ⭐/месяц)</b>
+• Безлимитные лайки ❤️
+• 5 суперлайков в день ⚡
+• Расширенные фильтры 🔍
+• Видеть кто лайкнул 👀
+• Приоритет в показе 📊
+
+<b>💎 PLATINUM (500 ⭐/месяц)</b>
+• Всё из Premium +
+• AI совместимость 🤖
+• Инкогнито режим 👻
+• Видеть все просмотры 👁️
+• Персональные рекомендации 🎯
+
+<b>💳 Telegram Stars</b>
+Оплата через Telegram Stars - быстро и безопасно!
+
+<b>Специальное предложение:</b>
+• Первая неделя Premium - БЕСПЛАТНО! 🎁
+• При оплате на месяц - скидка 20% 💰
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("⭐ Купить Premium", 
+                                web_app=WebAppInfo(url=f"{self.webapp_url}/premium"))],
+            [InlineKeyboardButton("💎 Купить Platinum", 
+                                web_app=WebAppInfo(url=f"{self.webapp_url}/premium"))],
+            [InlineKeyboardButton("🎁 Попробовать бесплатно", callback_data="free_trial")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            premium_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
+    
+    async def settings(self, update: Update, context):
+        """Команда /settings"""
+        user_id = update.effective_user.id
+        user_data = await self.get_user_data(user_id)
+        
+        settings_text = """
+⚙️ <b>Настройки</b>
+
+<b>Уведомления:</b>
+• Новые матчи: ✅
+• Сообщения: ✅
+• Лайки: ✅
+• Premium предложения: ❌
+
+<b>Приватность:</b>
+• Показывать в поиске: ✅
+• Показывать расстояние: ✅
+• Показывать последнюю активность: ✅
+
+<b>Фильтры:</b>
+• Возраст: 18-99
+• Расстояние: 50 км
+• Только с фото: ❌
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔔 Уведомления", callback_data="notifications")],
+            [InlineKeyboardButton("🔒 Приватность", callback_data="privacy")],
+            [InlineKeyboardButton("🔍 Фильтры", callback_data="filters")],
+            [InlineKeyboardButton("📱 Управление через Web App", 
+                                web_app=WebAppInfo(url=f"{self.webapp_url}/settings"))],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            settings_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
+    
+    async def help(self, update: Update, context):
+        """Команда /help"""
+        help_text = """
+ℹ️ <b>Помощь</b>
+
+<b>Основные команды:</b>
+/start - Главное меню
+/profile - Мой профиль
+/matches - Мои совпадения
+/search - Поиск анкет
+/premium - Premium подписка
+/settings - Настройки
+/help - Эта справка
+
+<b>Как пользоваться:</b>
+1. Зарегистрируйся через Web App
+2. Заполни профиль и добавь фото
+3. Начни свайпать анкеты
+4. Получай совпадения и общайся!
+
+<b>Проблемы с фото?</b>
+• Используй качественные фото
+• Покажи лицо на первом фото
+• Добавь 3-6 фото для лучших результатов
+
+<b>Нужна помощь?</b>
+• 📧 Напиши @support
+• 💬 Группа поддержки: @flirtly_support
+• 🌐 Сайт: https://flirtly.app
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("⚡ Открыть Web App", 
+                                web_app=WebAppInfo(url=self.webapp_url))],
+            [InlineKeyboardButton("📧 Поддержка", url="https://t.me/support")],
+            [InlineKeyboardButton("💬 Группа", url="https://t.me/flirtly_support")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
+        ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            help_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup
+        )
+    
+    async def handle_callback(self, update: Update, context):
+        """Обработка inline кнопок"""
+        query = update.callback_query
+        await query.answer()
+        
+        data = query.data
+        user_id = query.from_user.id
+        
+        if data == "back_to_start":
+            await self.start(update, context)
+        
+        elif data == "profile":
+            await self.profile(update, context)
+        
+        elif data == "matches":
+            await self.matches(update, context)
+        
+        elif data == "search":
+            await self.search(update, context)
+        
+        elif data == "premium":
+            await self.premium(update, context)
+        
+        elif data == "settings":
+            await self.settings(update, context)
+        
+        elif data.startswith("chat_"):
+            match_id = data.split("_")[1]
+            await self.start_chat(user_id, match_id, query)
+        
+        elif data == "referral":
+            await self.show_referral(user_id, query)
+        
+        elif data == "free_trial":
+            await self.activate_free_trial(user_id, query)
+    
+    async def handle_message(self, update: Update, context):
+        """Обработка сообщений в чате"""
+        user_id = update.effective_user.id
+        message_text = update.message.text
+        
+        # Проверяем есть ли активный чат
+        active_chat = await self.get_active_chat(user_id)
+        
+        if active_chat:
+            # Пересылаем сообщение матчу
+            await self.forward_message_to_match(
+                from_user=user_id,
+                to_user=active_chat['partner_id'],
+                message=message_text
+            )
+            
+            await update.message.reply_text("✅ Сообщение отправлено!")
+        else:
+            # Нет активного чата - направляем в Web App
+            await update.message.reply_text(
+                "💬 У тебя нет активных чатов.\n\n"
+                "Открой Web App чтобы начать общение!",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("⚡ Открыть чаты", 
+                                       web_app=WebAppInfo(url=f"{self.webapp_url}/chats"))
+                ]])
+            )
+    
+    # ===================================
+    # HELPER METHODS (Mock implementations)
+    # ===================================
+    
+    async def check_user_exists(self, user_id: int) -> bool:
+        """Проверка существования пользователя"""
+        # Mock implementation
+        return True
+    
+    async def get_user_data(self, user_id: int) -> dict:
+        """Получение данных пользователя"""
+        # Mock implementation
+        return {
+            'name': 'Тестовый пользователь',
+            'age': 25,
+            'gender': 'male',
+            'looking_for': 'female',
+            'city': 'Москва',
+            'likes_sent': 5,
+            'likes_received': 12,
+            'matches_count': 3,
+            'active_chats': 1,
+            'is_premium': False,
+            'premium_until': None,
+            'photos': ['photo1.jpg', 'photo2.jpg']
+        }
+    
+    async def get_user_matches(self, user_id: int) -> list:
+        """Получение матчей пользователя"""
+        # Mock implementation
+        return [
+            {'id': 1, 'name': 'Анна', 'age': 23},
+            {'id': 2, 'name': 'Мария', 'age': 26},
+            {'id': 3, 'name': 'Елена', 'age': 24}
+        ]
+    
+    async def get_active_chat(self, user_id: int) -> Optional[dict]:
+        """Получение активного чата"""
+        # Mock implementation
+        return None
+    
+    async def forward_message_to_match(self, from_user: int, to_user: int, message: str):
+        """Пересылка сообщения матчу"""
+        # Mock implementation
+        pass
+    
+    async def start_chat(self, user_id: int, match_id: int, query):
+        """Начало чата с матчем"""
+        await query.edit_message_text(
+            f"💬 Чат с пользователем {match_id}\n\n"
+            "Открой Web App для удобного общения!",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("⚡ Открыть чат", 
+                                   web_app=WebAppInfo(url=f"{self.webapp_url}/chat/{match_id}"))
+            ]])
+        )
+    
+    async def show_referral(self, user_id: int, query):
+        """Показать реферальную программу"""
+        ref_link = f"https://t.me/FFlirtly_bot?start=ref_{user_id}"
+        
+        await query.edit_message_text(
             f"🎁 <b>Реферальная программа</b>\n\n"
             f"Приглашай друзей и получай бонусы!\n\n"
             f"<b>За каждого друга:</b>\n"
             f"• Ты получаешь: +10 лайков\n"
             f"• Друг получает: +5 лайков\n\n"
-            f"<b>Твоя статистика:</b>\n"
-            f"👥 Приглашено: {stats['total_referrals']}\n"
-            f"❤️ Бонусных лайков: {user.bonus_likes}\n\n"
             f"<b>Твоя ссылка:</b>\n"
-            f"<code>{ref_link}</code>",
-            parse_mode="HTML",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="📤 Поделиться",
-                        url=f"https://t.me/share/url?url={ref_link}&text=🔥 Попробуй Flirtly!"
-                    )
-                ],
-                [InlineKeyboardButton(text="◀ anback", callback_data="back")]
+            f"<code>{ref_link}</code>\n\n"
+            f"Нажми кнопку чтобы поделиться!",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📤 Поделиться", 
+                                   url=f"https://t.me/share/url?url={ref_link}&text=🔥 Попробуй Flirtly!")],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_start")]
             ])
         )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "premium")
-async def callback_premium(callback):
-    """Show premium options"""
-    await callback.message.edit_text(
-        "⭐ <b>Premium подписка</b>\n\n"
-        "<b>🌟 PREMIUM (250 ⭐/месяц)</b>\n"
-        "• Безлимитные лайки\n"
-        "• 5 суперлайков/день\n"
-        "• Расширенные фильтры\n"
-        "• Видеть кто лайкнул\n\n"
-        "<b>💎 PLATINUM (500 ⭐/месяц)</b>\n"
-        "• Всё из Premium +\n"
-        "• AI совместимость\n"
-        "• Приоритет в показе\n"
-        "• Инкогнито режим\n\n"
-        "Оформи через Web App!",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="⚡ Открыть Flirtly",
-                    web_app=WebAppInfo(url=WEBAPP_URL)
-                )
-            ],
-            [InlineKeyboardButton(text="◀ anback", callback_data="back")]
-        ])
-    )
-    await callback.answer()
-
-
-@dp.callback_query(F.data == "back")
-async def callback_back(callback):
-    """Back to main menu"""
-    await callback.message.edit_text(
-        f"<b>Привет, {callback.from_user.first_name}!</b>\n\n"
-        f"Нажми кнопку ниже чтобы открыть Flirtly!",
-        parse_mode="HTML",
-        reply_markup=get_main_keyboard()
-    )
-    await callback.answer()
-
-
-async def main():
-    """Start bot"""
-    logger.info("Initializing database...")
-    await init_db()
     
-    logger.info("Starting Flirtly Bot with full database integration...")
+    async def activate_free_trial(self, user_id: int, query):
+        """Активация бесплатного пробного периода"""
+        await query.edit_message_text(
+            "🎁 <b>Бесплатная неделя Premium активирована!</b>\n\n"
+            "Ты получил доступ ко всем Premium функциям на 7 дней:\n"
+            "• Безлимитные лайки ❤️\n"
+            "• 5 суперлайков в день ⚡\n"
+            "• Расширенные фильтры 🔍\n"
+            "• Видеть кто лайкнул 👀\n\n"
+            "Наслаждайся Premium опытом!",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("⚡ Начать использовать", 
+                                   web_app=WebAppInfo(url=self.webapp_url))
+            ]])
+        )
     
-    try:
-        await dp.start_polling(bot)
-    finally:
-        await bot.session.close()
+    def run(self):
+        """Запуск бота"""
+        logger.info("Starting Flirtly Bot...")
+        self.app.run_polling()
 
-
+# Запуск бота
 if __name__ == "__main__":
-    asyncio.run(main())
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "8430527446:AAFLoCZqvreDpsgz4d5z4J5LXMLC42B9ex0")
+    WEBAPP_URL = os.getenv("WEBAPP_URL", "https://vlamay.github.io/flirtly-webapp")
+    
+    bot = FlirtlyBot(BOT_TOKEN, WEBAPP_URL)
+    bot.run()
