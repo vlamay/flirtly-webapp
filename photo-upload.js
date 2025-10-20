@@ -182,31 +182,185 @@ class PhotoUploadSystem {
     }
 
     // ===================================
+    // TELEGRAM GALLERY ACCESS
+    // ===================================
+
+    async useTelegramGallery() {
+        return new Promise((resolve, reject) => {
+            // Method 1: Modern Telegram WebApp API
+            if (window.Telegram.WebApp.showFileSelector) {
+                console.log('📱 Используем showFileSelector');
+                window.Telegram.WebApp.showFileSelector({
+                    type: 'photo',
+                    accept: 'image/*',
+                    multiple: false
+                }, (result) => {
+                    if (result && result.files && result.files.length > 0) {
+                        const file = result.files[0];
+                        console.log('📁 Telegram file selected:', file);
+                        this.processTelegramFile(file).then(resolve).catch(reject);
+                    } else {
+                        reject(new Error('Файл не выбран в Telegram'));
+                    }
+                });
+                return;
+            }
+            
+            // Method 2: Legacy API with popup
+            if (window.Telegram.WebApp.showPopup) {
+                console.log('📱 Используем showPopup');
+                window.Telegram.WebApp.showPopup({
+                    title: 'Выберите фото',
+                    message: 'Откуда хотите загрузить фото?',
+                    buttons: [
+                        { id: 'gallery', type: 'default', text: '🖼️ Из галереи' },
+                        { id: 'camera', type: 'default', text: '📷 Камера' },
+                        { type: 'cancel', text: '❌ Отмена' }
+                    ]
+                }, async (buttonId) => {
+                    if (buttonId === 'gallery') {
+                        try {
+                            // Fallback to standard gallery
+                            const result = await this.useStandardGallery();
+                            resolve(result);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    } else if (buttonId === 'camera') {
+                        try {
+                            const result = await this.useTelegramCamera();
+                            resolve(result);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    } else {
+                        reject(new Error('Выбор отменен'));
+                    }
+                });
+                return;
+            }
+            
+            // Fallback to standard gallery
+            console.log('📱 Telegram API недоступен, используем стандартный метод');
+            this.useStandardGallery().then(resolve).catch(reject);
+        });
+    }
+
+    async useTelegramCamera() {
+        return new Promise((resolve, reject) => {
+            if (window.Telegram.WebApp.openCamera) {
+                console.log('📷 Используем Telegram камеру');
+                window.Telegram.WebApp.openCamera(
+                    "Сделайте фото для профиля",
+                    (result) => {
+                        if (result && result.files && result.files.length > 0) {
+                            const file = result.files[0];
+                            console.log('📷 Telegram camera photo:', file);
+                            this.processTelegramFile(file).then(resolve).catch(reject);
+                        } else {
+                            reject(new Error('Фото не сделано'));
+                        }
+                    }
+                );
+            } else {
+                reject(new Error('Telegram камера недоступна'));
+            }
+        });
+    }
+
+    async processTelegramFile(file) {
+        try {
+            // Валидация файла
+            await this.validateFile(file);
+            console.log('✅ Telegram файл прошел валидацию');
+            
+            // Обработка фото
+            const result = await this.processPhoto(file);
+            console.log('✅ Telegram фото обработано:', result);
+            
+            return result;
+        } catch (error) {
+            console.error('❌ Ошибка обработки Telegram файла:', error);
+            throw error;
+        }
+    }
+
+    // ===================================
     // GALLERY ACCESS
     // ===================================
 
     async openGallery() {
+        console.log('🟡 Открываем галерею...');
+        
+        // Специальная обработка для Telegram Web App
+        if (window.Telegram?.WebApp) {
+            try {
+                console.log('📱 Используем Telegram WebApp API');
+                return await this.useTelegramGallery();
+            } catch (error) {
+                console.warn('⚠️ Telegram API failed, fallback to standard:', error);
+                // Fallback to standard file input
+            }
+        }
+        
+        return this.useStandardGallery();
+    }
+
+    async useStandardGallery() {
         return new Promise((resolve, reject) => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/*';
-            input.multiple = false;
+            // Создаем невидимый input элемент
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*,image/jpeg,image/png,image/webp';
+            fileInput.multiple = false;
+            fileInput.style.display = 'none';
             
-            input.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    try {
-                        const result = await this.processPhoto(file);
-                        resolve(result);
-                    } catch (error) {
-                        reject(error);
+            // Обработчик выбора файла
+            fileInput.onchange = async (event) => {
+                console.log('📁 Файл выбран, обрабатываем...');
+                
+                const file = event.target.files[0];
+                if (!file) {
+                    console.log('❌ Файл не выбран');
+                    reject(new Error('Файл не выбран'));
+                    return;
+                }
+                
+                console.log('📁 Файл:', file.name, file.size, file.type);
+                
+                try {
+                    // Валидация файла
+                    await this.validateFile(file);
+                    console.log('✅ Файл прошел валидацию');
+                    
+                    // Обработка фото
+                    const result = await this.processPhoto(file);
+                    console.log('✅ Фото обработано:', result);
+                    
+                    resolve(result);
+                } catch (error) {
+                    console.error('❌ Ошибка обработки фото:', error);
+                    reject(error);
+                } finally {
+                    // Очищаем input из DOM
+                    if (fileInput.parentElement) {
+                        fileInput.parentElement.removeChild(fileInput);
                     }
-                } else {
-                    reject(new Error('No file selected'));
                 }
             };
             
-            input.click();
+            // Обработчик отмены выбора
+            fileInput.oncancel = () => {
+                console.log('❌ Выбор файла отменен');
+                if (fileInput.parentElement) {
+                    fileInput.parentElement.removeChild(fileInput);
+                }
+                reject(new Error('Выбор файла отменен'));
+            };
+            
+            // Добавляем в DOM и запускаем выбор
+            document.body.appendChild(fileInput);
+            fileInput.click();
         });
     }
 
@@ -378,11 +532,42 @@ class PhotoUploadSystem {
     }
 
     showError(message) {
+        console.error('❌ Photo Upload Error:', message);
+        
+        // Показываем понятное сообщение пользователю
+        const userFriendlyMessage = this.getUserFriendlyErrorMessage(message);
+        
         if (window.premiumUI) {
-            window.premiumUI.error(message);
+            window.premiumUI.error(userFriendlyMessage);
+        } else if (window.AnimationSystem) {
+            window.AnimationSystem.showToast(userFriendlyMessage, 'error');
         } else {
-            alert(message);
+            alert(userFriendlyMessage);
         }
+    }
+
+    getUserFriendlyErrorMessage(error) {
+        const errorMessages = {
+            'File not selected': 'Файл не выбран',
+            'File too large': 'Файл слишком большой. Максимальный размер: 5MB',
+            'Invalid file type': 'Неподдерживаемый формат файла. Используйте JPG, PNG или WebP',
+            'Network Error': 'Проблемы с интернет-соединением',
+            'Failed to fetch': 'Не удалось соединиться с сервером',
+            'File too large': 'Файл слишком большой',
+            'User cancelled': 'Загрузка отменена',
+            'Выбор файла отменен': 'Загрузка отменена',
+            'Telegram камера недоступна': 'Камера недоступна в текущей версии Telegram'
+        };
+        
+        // Ищем совпадение в сообщении об ошибке
+        for (const [key, message] of Object.entries(errorMessages)) {
+            if (error.includes(key)) {
+                return message;
+            }
+        }
+        
+        // Возвращаем общее сообщение
+        return 'Не удалось загрузить фото. Попробуйте еще раз.';
     }
 
     closeModal(modal) {
@@ -392,6 +577,49 @@ class PhotoUploadSystem {
                 modal.parentElement.removeChild(modal);
             }
         }, 300);
+    }
+
+    // ===================================
+    // DEBUGGING AND DIAGNOSTICS
+    // ===================================
+
+    async testPhotoUpload() {
+        console.log('🧪 Тестируем загрузку фото...');
+        
+        try {
+            // Проверяем доступность Telegram API
+            if (window.Telegram?.WebApp) {
+                console.log('✅ Telegram WebApp доступен');
+                console.log('📱 Telegram version:', window.Telegram.WebApp.version);
+                console.log('📱 Platform:', window.Telegram.WebApp.platform);
+                console.log('📱 Available methods:', Object.keys(window.Telegram.WebApp));
+            } else {
+                console.log('⚠️ Telegram WebApp недоступен');
+            }
+
+            // Проверяем поддержку file input
+            const testInput = document.createElement('input');
+            testInput.type = 'file';
+            testInput.accept = 'image/*';
+            console.log('✅ File input поддерживается');
+
+            // Тестируем загрузку
+            const result = await this.openGallery();
+            console.log('✅ Тест загрузки прошел успешно:', result);
+            
+            return result;
+        } catch (error) {
+            console.error('❌ Тест загрузки провалился:', error);
+            throw error;
+        }
+    }
+
+    // Статический метод для быстрого тестирования
+    static async quickTest() {
+        console.log('🚀 Быстрый тест загрузки фото...');
+        
+        const uploader = new PhotoUploadSystem();
+        return await uploader.testPhotoUpload();
     }
 }
 
@@ -510,3 +738,40 @@ document.head.appendChild(photoUploadStyles);
 
 // Export for use in other modules
 window.PhotoUploadSystem = PhotoUploadSystem;
+
+// Глобальные функции для тестирования
+window.testPhotoUpload = () => PhotoUploadSystem.quickTest();
+
+// Функция для быстрого тестирования в консоли
+window.debugPhotoUpload = async () => {
+    console.log('🧪 Запускаем диагностику загрузки фото...');
+    
+    try {
+        // Проверяем Telegram WebApp
+        if (window.Telegram?.WebApp) {
+            console.log('✅ Telegram WebApp:', {
+                version: window.Telegram.WebApp.version,
+                platform: window.Telegram.WebApp.platform,
+                availableMethods: Object.keys(window.Telegram.WebApp).filter(key => 
+                    typeof window.Telegram.WebApp[key] === 'function'
+                )
+            });
+        } else {
+            console.log('⚠️ Telegram WebApp недоступен');
+        }
+
+        // Тестируем загрузку
+        const result = await window.testPhotoUpload();
+        console.log('✅ Тест успешен:', result);
+        return result;
+        
+    } catch (error) {
+        console.error('❌ Тест провалился:', error);
+        console.log('💡 Попробуйте:');
+        console.log('1. Проверить консоль на ошибки');
+        console.log('2. Убедиться что открыто в Telegram');
+        console.log('3. Проверить разрешения на доступ к файлам');
+        throw error;
+    }
+};
+
