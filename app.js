@@ -64,9 +64,11 @@ class FlirtlyApp {
     }
     
     async checkRegistration() {
-        // In real app, check with backend
-        // For now, always show onboarding
-        return false;
+        // Check if user has complete profile
+        // In real app, this would check with backend
+        // For now, check localStorage or always show onboarding
+        const hasProfile = localStorage.getItem('flirtly_profile_complete');
+        return hasProfile === 'true';
     }
     
     setupTheme() {

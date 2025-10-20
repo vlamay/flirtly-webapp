@@ -18,6 +18,7 @@ class OnboardingFlow {
             'age', 
             'gender',
             'looking_for',
+            'location',
             'photos',
             'bio'
         ];
@@ -61,6 +62,9 @@ class OnboardingFlow {
                 break;
             case 'looking_for':
                 this.showLookingForStep();
+                break;
+            case 'location':
+                this.showLocationStep();
                 break;
             case 'photos':
                 this.showPhotosStep();
@@ -201,7 +205,7 @@ class OnboardingFlow {
         container.innerHTML = `
             <div class="onboarding-container">
                 <div class="onboarding-progress">
-                    <div class="progress-bar" style="width: ${(4/6)*100}%"></div>
+                    <div class="progress-bar" style="width: ${(4/7)*100}%"></div>
                 </div>
                 
                 <div class="onboarding-content">
@@ -241,13 +245,159 @@ class OnboardingFlow {
         `;
     }
     
+    showLocationStep() {
+        const container = document.getElementById('mainContent');
+        
+        container.innerHTML = `
+            <div class="onboarding-container">
+                <div class="onboarding-progress">
+                    <div class="progress-bar" style="width: ${(5/7)*100}%"></div>
+                </div>
+                
+                <div class="onboarding-content">
+                    <h2 class="onboarding-title">Где ты находишься?</h2>
+                    <p class="onboarding-subtitle">Это поможет найти людей поблизости</p>
+                    
+                    <div class="location-options">
+                        <button class="location-btn location-auto" id="autoLocationBtn">
+                            <span class="location-icon">📍</span>
+                            <span class="location-text">
+                                <strong>Определить автоматически</strong>
+                                <small>Используя GPS</small>
+                            </span>
+                        </button>
+                        
+                        <div class="location-divider">или</div>
+                        
+                        <input 
+                            type="text" 
+                            id="cityInput" 
+                            class="onboarding-input"
+                            placeholder="Введи свой город"
+                            value="${this.userData.city || ''}"
+                        >
+                    </div>
+                    
+                    <p class="location-privacy">
+                        🔒 Точное местоположение не показывается другим пользователям.<br>
+                        Показывается только расстояние и город.
+                    </p>
+                    
+                    <div class="onboarding-actions">
+                        <button class="btn-secondary" onclick="window.onboarding.prevStep()">
+                            ← Назад
+                        </button>
+                        <button class="btn-primary" onclick="window.onboarding.nextStep()">
+                            Продолжить →
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Setup auto location button
+        document.getElementById('autoLocationBtn').addEventListener('click', () => {
+            this.requestLocation();
+        });
+    }
+    
+    async requestLocation() {
+        const btn = document.getElementById('autoLocationBtn');
+        btn.innerHTML = `
+            <span class="location-icon">⏳</span>
+            <span class="location-text">
+                <strong>Определяем...</strong>
+                <small>Разреши доступ к геолокации</small>
+            </span>
+        `;
+        
+        try {
+            // Try Telegram WebApp location first
+            if (this.app.tg.LocationManager) {
+                this.app.tg.LocationManager.getLocation((location) => {
+                    if (location) {
+                        this.saveLocation(location.latitude, location.longitude);
+                    } else {
+                        this.useHtmlGeolocation();
+                    }
+                });
+            } else {
+                this.useHtmlGeolocation();
+            }
+        } catch (error) {
+            console.error('Location error:', error);
+            AnimationSystem.showToast('Не удалось определить местоположение', 'error');
+            btn.innerHTML = `
+                <span class="location-icon">❌</span>
+                <span class="location-text">
+                    <strong>Ошибка</strong>
+                    <small>Попробуй ввести город вручную</small>
+                </span>
+            `;
+        }
+    }
+
+    useHtmlGeolocation() {
+        if ('geolocation' in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    this.saveLocation(
+                        position.coords.latitude,
+                        position.coords.longitude
+                    );
+                },
+                (error) => {
+                    console.error('Geolocation error:', error);
+                    AnimationSystem.showToast(
+                        'Не удалось определить местоположение. Введи город вручную.',
+                        'warning'
+                    );
+                }
+            );
+        }
+    }
+
+    async saveLocation(latitude, longitude) {
+        this.userData.latitude = latitude;
+        this.userData.longitude = longitude;
+        
+        // Reverse geocoding to get city name
+        try {
+            const response = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+            );
+            const data = await response.json();
+            
+            this.userData.city = data.address.city || data.address.town || data.address.village || 'Unknown';
+            this.userData.country = data.address.country || 'Unknown';
+            
+            AnimationSystem.showToast(`📍 Местоположение определено: ${this.userData.city}`, 'success');
+            
+            // Update button
+            const btn = document.getElementById('autoLocationBtn');
+            btn.innerHTML = `
+                <span class="location-icon">✅</span>
+                <span class="location-text">
+                    <strong>${this.userData.city}</strong>
+                    <small>${this.userData.country}</small>
+                </span>
+            `;
+            btn.style.background = 'rgba(16, 185, 129, 0.2)';
+            btn.style.borderColor = '#10b981';
+            
+        } catch (error) {
+            console.error('Geocoding error:', error);
+            this.userData.city = 'Unknown';
+        }
+    }
+    
     showPhotosStep() {
         const container = document.getElementById('mainContent');
         
         container.innerHTML = `
             <div class="onboarding-container">
                 <div class="onboarding-progress">
-                    <div class="progress-bar" style="width: ${(5/6)*100}%"></div>
+                    <div class="progress-bar" style="width: ${(6/7)*100}%"></div>
                 </div>
                 
                 <div class="onboarding-content">
@@ -401,6 +551,17 @@ class OnboardingFlow {
                 }
                 return true;
                 
+            case 'location':
+                const city = document.getElementById('cityInput')?.value.trim();
+                if (!this.userData.latitude && !city) {
+                    AnimationSystem.showToast('Определи местоположение или введи город', 'error');
+                    return false;
+                }
+                if (city) {
+                    this.userData.city = city;
+                }
+                return true;
+                
             case 'photos':
                 if (this.userData.photos.length === 0) {
                     AnimationSystem.showToast('Добавь хотя бы одно фото', 'error');
@@ -423,6 +584,12 @@ class OnboardingFlow {
                 break;
             case 'age':
                 this.userData.age = parseInt(document.getElementById('ageInput').value);
+                break;
+            case 'location':
+                const city = document.getElementById('cityInput')?.value.trim();
+                if (city) {
+                    this.userData.city = city;
+                }
                 break;
             case 'bio':
                 this.userData.bio = document.getElementById('bioInput')?.value.trim() || '';
@@ -480,6 +647,9 @@ class OnboardingFlow {
         
         // Show success and start main app
         AnimationSystem.showToast('🎉 Регистрация завершена!', 'success');
+        
+        // Mark profile as complete
+        localStorage.setItem('flirtly_profile_complete', 'true');
         
         await this.app.sleep(500);
         
