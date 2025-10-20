@@ -98,9 +98,9 @@ class OnboardingFlow {
                         maxlength="30"
                     >
                     
-                    <button class="btn-primary btn-large" onclick="window.onboarding.nextStep()">
-                        Продолжить →
-                    </button>
+                        <button class="btn-primary btn-large btn-premium" onclick="window.onboarding.nextStep()">
+                            Продолжить →
+                        </button>
                 </div>
             </div>
         `;
@@ -1213,8 +1213,12 @@ class OnboardingFlow {
         const bio = document.getElementById('bioInput')?.value.trim() || '';
         this.userData.bio = bio;
         
-        // Show loading
-        AnimationSystem.showToast('Создаем профиль...', 'info');
+        // Show premium loading
+        if (window.premiumUI) {
+            window.premiumUI.showPremiumToast('Создаем профиль...', 'info');
+        } else {
+            AnimationSystem.showToast('Создаем профиль...', 'info');
+        }
         
         // Send to bot
         this.app.sendToBot({
@@ -1224,8 +1228,12 @@ class OnboardingFlow {
         
         await this.app.sleep(1500);
         
-        // Show success and start main app
-        AnimationSystem.showToast('🎉 Регистрация завершена!', 'success');
+        // Show success with premium celebration
+        if (window.premiumUI) {
+            window.premiumUI.celebrate('🎉 Регистрация завершена!');
+        } else {
+            AnimationSystem.showToast('🎉 Регистрация завершена!', 'success');
+        }
         
         // Mark profile as complete
         localStorage.setItem('flirtly_profile_complete', 'true');
