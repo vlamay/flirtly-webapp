@@ -1,0 +1,38 @@
+# env_template.txt - Environment variables template
+
+# Bot Configuration
+BOT_TOKEN=8430527446:AAFLoCZqvreDpsgz4d5z4J5LXMLC42B9ex0
+WEBAPP_URL=https://vlamay.github.io/flirtly-webapp/
+
+# Database Configuration
+USE_POSTGRES=false
+DB_ECHO=false
+DB_POOL_SIZE=10
+DB_MAX_OVERFLOW=20
+
+# PostgreSQL (if USE_POSTGRES=true)
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=flirtly
+POSTGRES_USER=flirtly_user
+POSTGRES_PASSWORD=flirtly_secure_password_2024
+
+# Redis (optional)
+REDIS_URL=redis://localhost:6379
+
+# Logging
+LOG_LEVEL=INFO
+
+# Security
+SECRET_KEY=your_secret_key_here
+
+# Analytics (optional)
+GOOGLE_ANALYTICS_ID=
+MIXPANEL_TOKEN=
+
+# Payments
+TELEGRAM_STARS_ENABLED=true
+
+# Rate Limiting
+RATE_LIMIT_PER_MINUTE=60
+RATE_LIMIT_PER_HOUR=1000
