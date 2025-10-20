@@ -1177,7 +1177,7 @@ body {
 }
 
 .photo-slot.empty {
-    background: rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.1);
     backdrop-filter: blur(10px);
     border: 2px dashed rgba(255, 255, 255, 0.3);
     display: flex;
@@ -1185,14 +1185,47 @@ body {
     justify-content: center;
 }
 
-.photo-slot.empty:hover {
-    background: rgba(255, 255, 255, 0.2);
-    border-color: white;
-}
-
-.photo-plus {
+.photo-placeholder {
     font-size: 48px;
     opacity: 0.5;
+}
+
+/* Photo Upload Options */
+.photo-upload-options {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+}
+
+.photo-upload-btn {
+    flex: 1;
+    padding: var(--spacing-md);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: var(--radius-md);
+    color: white;
+    cursor: pointer;
+    transition: all var(--transition-base);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.photo-upload-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: white;
+    transform: translateY(-2px);
+}
+
+.upload-icon {
+    font-size: 24px;
+}
+
+.photo-upload-btn span:last-child {
+    font-size: 14px;
+    font-weight: 600;
 }
 
 .photo-slot.filled img {

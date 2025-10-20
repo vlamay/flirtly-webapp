@@ -408,7 +408,25 @@ class OnboardingFlow {
                         ${this.renderPhotoGrid()}
                     </div>
                     
-                    <p class="photo-hint">💡 Совет: профили с фото получают в 10 раз больше совпадений!</p>
+                    <div class="photo-upload-options">
+                        <button class="photo-upload-btn" onclick="window.onboarding.uploadFromGallery()">
+                            <span class="upload-icon">🖼️</span>
+                            <span>Из галереи</span>
+                        </button>
+                        
+                        <button class="photo-upload-btn" onclick="window.onboarding.takePhoto()">
+                            <span class="upload-icon">📷</span>
+                            <span>Сделать фото</span>
+                        </button>
+                    </div>
+                    
+                    <p class="photo-hint">
+                        💡 <b>Советы для лучших фото:</b><br>
+                        • Используй четкие, качественные фото<br>
+                        • Покажи свое лицо<br>
+                        • Добавь фото с хобби или интересами<br>
+                        • Профили с фото получают в 10 раз больше лайков!
+                    </p>
                     
                     <div class="onboarding-actions">
                         <button class="btn-secondary" onclick="window.onboarding.prevStep()">
@@ -439,8 +457,8 @@ class OnboardingFlow {
                 `;
             } else {
                 html += `
-                    <div class="photo-slot empty" onclick="window.onboarding.addPhoto()">
-                        <span class="photo-plus">+</span>
+                    <div class="photo-slot empty">
+                        <span class="photo-placeholder">📷</span>
                     </div>
                 `;
             }
@@ -607,21 +625,122 @@ class OnboardingFlow {
         this.showLookingForStep(); // Refresh
     }
     
-    async addPhoto() {
-        // For demo, use placeholder
-        if (this.userData.photos.length >= 6) {
-            AnimationSystem.showToast('Максимум 6 фото', 'warning');
+    async uploadFromGallery() {
+        try {
+            if (this.userData.photos.length >= 6) {
+                AnimationSystem.showToast('Максимум 6 фото', 'warning');
+                return;
+            }
+
+            if (this.app.tg && this.app.tg.showFileSelector) {
+                // Telegram WebApp API
+                const file = await this.app.tg.showFileSelector({
+                    type: 'photo',
+                    source: 'gallery'
+                });
+                
+                if (file) {
+                    await this.processSelectedFile(file);
+                }
+            } else {
+                // Браузерный fallback
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.multiple = false;
+                
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (file) await this.processSelectedFile(file);
+                };
+                
+                input.click();
+            }
+        } catch (error) {
+            console.error('Gallery upload failed:', error);
+            this.addPlaceholderPhoto();
+        }
+    }
+
+    async takePhoto() {
+        try {
+            if (this.userData.photos.length >= 6) {
+                AnimationSystem.showToast('Максимум 6 фото', 'warning');
+                return;
+            }
+
+            if (this.app.tg && this.app.tg.showFileSelector) {
+                // Telegram WebApp API
+                const file = await this.app.tg.showFileSelector({
+                    type: 'photo',
+                    source: 'camera'
+                });
+                
+                if (file) {
+                    await this.processSelectedFile(file);
+                }
+            } else {
+                // Браузерный fallback
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'image/*';
+                input.capture = 'environment'; // Использовать камеру
+                
+                input.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (file) await this.processSelectedFile(file);
+                };
+                
+                input.click();
+            }
+        } catch (error) {
+            console.error('Camera capture failed:', error);
+            AnimationSystem.showToast('Камера недоступна', 'error');
+        }
+    }
+
+    async processSelectedFile(file) {
+        // Проверка размера
+        if (file.size > 10 * 1024 * 1024) {
+            AnimationSystem.showToast('Файл слишком большой (макс. 10MB)', 'error');
             return;
         }
         
-        // In real app, would use Telegram.WebApp.requestFileAccess()
-        // For now, add placeholder
-        const photoIndex = this.userData.photos.length + 10;
-        this.userData.photos.push(`https://i.pravatar.cc/400?img=${photoIndex}`);
+        // Проверка типа
+        if (!file.type.startsWith('image/')) {
+            AnimationSystem.showToast('Выберите изображение', 'error');
+            return;
+        }
         
-        this.showPhotosStep(); // Refresh
+        // Показываем превью
+        const previewUrl = URL.createObjectURL(file);
+        this.userData.photos.push(previewUrl);
+        this.showPhotosStep();
         
         AnimationSystem.showToast('Фото добавлено!', 'success');
+        AnimationSystem.vibrate([10]); // Тактильный отклик
+        
+        // В реальном приложении здесь была бы загрузка на сервер
+        // await this.uploadToServer(file);
+    }
+
+    addPlaceholderPhoto() {
+        // Добавляем красивые placeholder фото как fallback
+        const placeholders = [
+            'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400&h=400&fit=crop', // Портрет 1
+            'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400&h=400&fit=crop', // Портрет 2  
+            'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=400&h=400&fit=crop', // Портрет 3
+            'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400&h=400&fit=crop', // Портрет 4
+            'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400&h=400&fit=crop', // Портрет 5
+            'https://images.unsplash.com/photo-1519244703995-f4e0f30006d5?w=400&h=400&fit=crop'  // Портрет 6
+        ];
+
+        const randomIndex = Math.floor(Math.random() * placeholders.length);
+        this.userData.photos.push(placeholders[randomIndex]);
+        this.showPhotosStep();
+        
+        AnimationSystem.showToast('Фото добавлено!', 'success');
+        AnimationSystem.vibrate([10]); // Тактильный отклик
     }
     
     removePhoto(index) {
