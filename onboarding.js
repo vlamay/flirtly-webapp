@@ -646,9 +646,8 @@ class OnboardingFlow {
                         <button class="btn-secondary" onclick="window.onboarding.prevStep()">
                             ← Назад
                         </button>
-                        <button class="btn-primary" onclick="window.onboarding.nextStep()"
-                                ${this.userData.photos.length === 0 ? 'disabled' : ''}>
-                            Продолжить →
+                        <button class="btn-primary" onclick="window.onboarding.nextStep()">
+                            ${this.userData.photos.length === 0 ? 'Пропустить →' : 'Продолжить →'}
                         </button>
                     </div>
                 </div>
@@ -795,10 +794,7 @@ class OnboardingFlow {
                 return true;
                 
             case 'photos':
-                if (this.userData.photos.length === 0) {
-                    AnimationSystem.showToast('Добавь хотя бы одно фото', 'error');
-                    return false;
-                }
+                // Фото теперь необязательно - можно пропустить
                 return true;
                 
             case 'bio':
@@ -850,14 +846,36 @@ class OnboardingFlow {
                 return;
             }
 
-            // Use advanced photo upload system if available
-            if (window.PhotoUploadSystem) {
-                const photoUpload = new window.PhotoUploadSystem();
-                const result = await photoUpload.openGallery();
-                
-                if (result) {
-                    this.userData.photos.push(result.url);
+            console.log('📸 Начинаем загрузку фото...');
+            
+            // Простая загрузка через input
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.style.display = 'none';
+            
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    console.log('📁 Файл выбран:', file.name);
+                    
+                    // Простая валидация
+                    if (!file.type.startsWith('image/')) {
+                        alert('Выберите изображение');
+                        return;
+                    }
+                    
+                    if (file.size > 5 * 1024 * 1024) {
+                        alert('Файл слишком большой (макс 5MB)');
+                        return;
+                    }
+                    
+                    // Создаем URL для превью
+                    const url = URL.createObjectURL(file);
+                    this.userData.photos.push(url);
                     this.showPhotosStep(); // Refresh
+                    
+                    console.log('✅ Фото добавлено:', url);
                     
                     if (window.premiumUI) {
                         window.premiumUI.celebrate('Фото добавлено!');
@@ -865,8 +883,17 @@ class OnboardingFlow {
                         AnimationSystem.showToast('Фото добавлено!', 'success');
                     }
                 }
-                return;
-            }
+                
+                // Очищаем input
+                if (input.parentElement) {
+                    input.parentElement.removeChild(input);
+                }
+            };
+            
+            document.body.appendChild(input);
+            input.click();
+            
+            return;
 
             if (this.app.tg && this.app.tg.showFileSelector) {
                 // Telegram WebApp API
@@ -905,30 +932,53 @@ class OnboardingFlow {
                 return;
             }
 
-            if (this.app.tg && this.app.tg.showFileSelector) {
-                // Telegram WebApp API
-                const file = await this.app.tg.showFileSelector({
-                    type: 'photo',
-                    source: 'camera'
-                });
-                
+            console.log('📷 Начинаем съемку фото...');
+            
+            // Простая реализация через input с камерой
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/*';
+            input.capture = 'environment'; // Использовать камеру
+            input.style.display = 'none';
+
+            input.onchange = (e) => {
+                const file = e.target.files[0];
                 if (file) {
-                    await this.processSelectedFile(file);
+                    console.log('📷 Фото сделано:', file.name);
+                    
+                    // Простая валидация
+                    if (!file.type.startsWith('image/')) {
+                        alert('Выберите изображение');
+                        return;
+                    }
+                    
+                    if (file.size > 5 * 1024 * 1024) {
+                        alert('Файл слишком большой (макс 5MB)');
+                        return;
+                    }
+                    
+                    // Создаем URL для превью
+                    const url = URL.createObjectURL(file);
+                    this.userData.photos.push(url);
+                    this.showPhotosStep(); // Refresh
+                    
+                    console.log('✅ Фото добавлено:', url);
+                    
+                    if (window.premiumUI) {
+                        window.premiumUI.celebrate('Фото добавлено!');
+                    } else {
+                        AnimationSystem.showToast('Фото добавлено!', 'success');
+                    }
                 }
-            } else {
-                // Браузерный fallback
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = 'image/*';
-                input.capture = 'environment'; // Использовать камеру
                 
-                input.onchange = async (e) => {
-                    const file = e.target.files[0];
-                    if (file) await this.processSelectedFile(file);
-                };
-                
-                input.click();
-            }
+                // Очищаем input
+                if (input.parentElement) {
+                    input.parentElement.removeChild(input);
+                }
+            };
+
+            document.body.appendChild(input);
+            input.click();
         } catch (error) {
             console.error('Camera capture failed:', error);
             AnimationSystem.showToast('Камера недоступна', 'error');
@@ -1269,3 +1319,39 @@ class OnboardingFlow {
 
 // Add to window for onclick handlers
 window.onboarding = null;
+
+// Глобальная функция для тестирования загрузки фото
+window.testPhotoUpload = async () => {
+    console.log('🧪 Тестируем загрузку фото...');
+    
+    try {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'image/*';
+        input.style.display = 'none';
+        
+        return new Promise((resolve, reject) => {
+            input.onchange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    console.log('✅ Файл выбран:', file.name, file.size, file.type);
+                    const url = URL.createObjectURL(file);
+                    resolve({ file, url, size: file.size });
+                } else {
+                    reject(new Error('Файл не выбран'));
+                }
+                
+                if (input.parentElement) {
+                    input.parentElement.removeChild(input);
+                }
+            };
+            
+            document.body.appendChild(input);
+            input.click();
+        });
+        
+    } catch (error) {
+        console.error('❌ Ошибка тестирования:', error);
+        throw error;
+    }
+};
