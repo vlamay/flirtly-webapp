@@ -842,7 +842,29 @@ class OnboardingFlow {
     async uploadFromGallery() {
         try {
             if (this.userData.photos.length >= 6) {
-                AnimationSystem.showToast('Максимум 6 фото', 'warning');
+                if (window.premiumUI) {
+                    window.premiumUI.error('Максимум 6 фото');
+                } else {
+                    AnimationSystem.showToast('Максимум 6 фото', 'warning');
+                }
+                return;
+            }
+
+            // Use advanced photo upload system if available
+            if (window.PhotoUploadSystem) {
+                const photoUpload = new window.PhotoUploadSystem();
+                const result = await photoUpload.openGallery();
+                
+                if (result) {
+                    this.userData.photos.push(result.url);
+                    this.showPhotosStep(); // Refresh
+                    
+                    if (window.premiumUI) {
+                        window.premiumUI.celebrate('Фото добавлено!');
+                    } else {
+                        AnimationSystem.showToast('Фото добавлено!', 'success');
+                    }
+                }
                 return;
             }
 
