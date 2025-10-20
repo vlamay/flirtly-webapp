@@ -1015,3 +1015,217 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.5);
 }
+
+/* ===================================
+   ONBOARDING STYLES
+   =================================== */
+
+.onboarding-container {
+    width: 100%;
+    max-width: 500px;
+    padding: var(--spacing-lg);
+}
+
+.onboarding-progress {
+    width: 100%;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: var(--radius-full);
+    margin-bottom: var(--spacing-xl);
+    overflow: hidden;
+}
+
+.onboarding-progress .progress-bar {
+    height: 100%;
+    background: white;
+    border-radius: var(--radius-full);
+    transition: width var(--transition-base);
+}
+
+.onboarding-content {
+    text-align: center;
+}
+
+.onboarding-title {
+    font-size: 28px;
+    font-weight: 800;
+    margin-bottom: var(--spacing-sm);
+}
+
+.onboarding-subtitle {
+    font-size: 16px;
+    opacity: 0.8;
+    margin-bottom: var(--spacing-xl);
+}
+
+.onboarding-input,
+.onboarding-textarea {
+    width: 100%;
+    padding: var(--spacing-md) var(--spacing-lg);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: var(--radius-md);
+    color: white;
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: var(--spacing-xl);
+    transition: all var(--transition-base);
+}
+
+.onboarding-input:focus,
+.onboarding-textarea:focus {
+    outline: none;
+    border-color: white;
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.onboarding-input::placeholder,
+.onboarding-textarea::placeholder {
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.onboarding-textarea {
+    min-height: 120px;
+    resize: vertical;
+    font-family: inherit;
+}
+
+.char-counter {
+    text-align: right;
+    font-size: 14px;
+    opacity: 0.7;
+    margin-top: calc(var(--spacing-md) * -1);
+    margin-bottom: var(--spacing-md);
+}
+
+.onboarding-actions {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-top: var(--spacing-xl);
+}
+
+.onboarding-actions .btn-secondary,
+.onboarding-actions .btn-primary {
+    flex: 1;
+}
+
+.btn-large {
+    width: 100%;
+    padding: 18px 32px;
+    font-size: 18px;
+}
+
+/* Option Cards */
+.option-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-xl);
+}
+
+.option-card {
+    padding: var(--spacing-xl);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.option-card:hover {
+    transform: translateY(-4px);
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.option-card.selected {
+    background: white;
+    border-color: white;
+    color: var(--primary);
+    box-shadow: var(--shadow-lg);
+}
+
+.option-icon {
+    font-size: 48px;
+}
+
+.option-label {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* Photo Grid */
+.photo-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.photo-slot {
+    aspect-ratio: 1;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    position: relative;
+    cursor: pointer;
+    transition: all var(--transition-base);
+}
+
+.photo-slot.empty {
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    border: 2px dashed rgba(255, 255, 255, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.photo-slot.empty:hover {
+    background: rgba(255, 255, 255, 0.2);
+    border-color: white;
+}
+
+.photo-plus {
+    font-size: 48px;
+    opacity: 0.5;
+}
+
+.photo-slot.filled img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.photo-remove {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-full);
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: all var(--transition-fast);
+}
+
+.photo-remove:hover {
+    background: var(--danger);
+    transform: scale(1.1);
+}
+
+.photo-hint {
+    font-size: 14px;
+    opacity: 0.8;
+    text-align: center;
+}

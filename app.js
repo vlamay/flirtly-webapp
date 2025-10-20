@@ -34,6 +34,10 @@ class FlirtlyApp {
             toastContainer: document.getElementById('toastContainer')
         };
         
+        // Onboarding
+        this.onboarding = null;
+        this.isRegistered = false;
+        
         // Initialize
         this.init();
     }
@@ -41,17 +45,28 @@ class FlirtlyApp {
     async init() {
         console.log('Initializing Flirtly App...', this.user);
         
-        // Update stats display
+        // Check if user is registered
+        this.isRegistered = await this.checkRegistration();
+        
+        if (!this.isRegistered) {
+            // Show onboarding
+            this.onboarding = new OnboardingFlow(this);
+            window.onboarding = this.onboarding;
+            await this.onboarding.start();
+            return;
+        }
+        
+        // Continue with normal app flow
         this.updateStats();
-        
-        // Setup button handlers
         this.setupButtons();
-        
-        // Load profiles
         await this.loadProfiles();
-        
-        // Setup theme
         this.setupTheme();
+    }
+    
+    async checkRegistration() {
+        // In real app, check with backend
+        // For now, always show onboarding
+        return false;
     }
     
     setupTheme() {
